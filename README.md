@@ -1,2 +1,2 @@
-# my_classic_nets
-built some classic nn model by using pytorch
+目前进度：
+从零实现了lenet5，为了提升ACC略微修改了原版网络的结构，池化层由平均池化改为最大池化。训练过程中，激活函数选择使用带权重衰减的adam。----2021.07.06
