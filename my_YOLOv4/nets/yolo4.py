@@ -4,10 +4,10 @@ import torch.nn as nn
 from CSPDarknet import darknet53
 
 
-def conv2d(filter_in, filter_out, kernel_size, stride=1):
+def conv2d(filter_in, filter_out, kernel_size, stride=(1, 1)):
     pad = (kernel_size - 1) // 2 if kernel_size else 0
     return nn.Sequential(OrderedDict([
-        ("conv", nn.Conv2d(filter_in, filter_out, kernel_size=kernel_size, sitride=stride, padding=pad, bias=False)),
+        ("conv", nn.Conv2d(filter_in, filter_out, kernel_size=kernel_size, stride=stride, padding=pad, bias=False)),
         ("bn", nn.BatchNorm2d(filter_out)),
         ("relu", nn.LeakyReLU(0, True)),
     ]))
@@ -21,7 +21,7 @@ class SpatialPyramidPooling(nn.Module):
     def __init__(self, pool_sizes=[5, 9, 13]):
         super(SpatialPyramidPooling, self).__init__()
 
-        self.maxpools = nn.ModuleList([nn.MaxPool2d(pool_size, pool_size//2) for pool_size in pool_sizes])
+        self.maxpools = nn.ModuleList([nn.MaxPool2d(pool_size, 1, pool_size//2) for pool_size in pool_sizes])
 
     def forward(self, x):
         features = [maxpool(x) for maxpool in self.maxpools[::-1]]
@@ -30,16 +30,16 @@ class SpatialPyramidPooling(nn.Module):
         return features
 
 
-class Upsample(nn.Module):
+class Up_sample(nn.Module):
     def __init__(self, in_channels, out_channels):
-        super(Upsample, self).__init__()
-        self.upsample = nn.Sequential(
+        super(Up_sample, self).__init__()
+        self.up_sample = nn.Sequential(
             conv2d(in_channels, out_channels, 1),
             nn.Upsample(scale_factor=2, mode='nearest')
         )
 
     def forward(self, x):
-        x = self.upsample(x)
+        x = self.up_sample(x)
         return x
 
 
@@ -49,6 +49,20 @@ class Upsample(nn.Module):
 def make_three_conv(filters_list, in_filters):
     m = nn.Sequential(
         conv2d(in_filters, filters_list[0], 1),
+        conv2d(filters_list[0], filters_list[1], 3),
+        conv2d(filters_list[1], filters_list[0], 1),
+    )
+    return m
+
+
+# --------------------------------------------------- #
+#   五次卷积块
+# --------------------------------------------------- #
+def make_five_conv(filters_list, in_filters):
+    m = nn.Sequential(
+        conv2d(in_filters, filters_list[0], 1),
+        conv2d(filters_list[0], filters_list[1], 3),
+        conv2d(filters_list[1], filters_list[0], 1),
         conv2d(filters_list[0], filters_list[1], 3),
         conv2d(filters_list[1], filters_list[0], 1),
     )
@@ -85,11 +99,11 @@ class YoloBody(nn.Module):
         self.SPP = SpatialPyramidPooling()
         self.conv2 = make_three_conv([512, 1024], 2048)
 
-        self.upsample1 = Upsample(512, 256)
+        self.up_sample1 = Up_sample(512, 256)
         self.conv_for_P4 = conv2d(512, 256, 1)
         self.make_five_conv1 = make_five_conv([256, 512], 512)
 
-        self.upsample2 = Upsample(256, 128)
+        self.up_sample2 = Up_sample(256, 128)
         self.conv_for_P3 = conv2d(256, 128, 1)
         self.make_five_conv2 = make_five_conv([128, 256], 256)
 
@@ -122,34 +136,34 @@ class YoloBody(nn.Module):
         P5 = self.conv2(P5)
 
         # 13,13,512 -> 13,13,256 -> 26,26,256
-        P5_upsample = self.upsample1(P5)
+        P5_up_sample = self.up_sample1(P5)
         # 26,26,512 -> 26,26,256
         P4 = self.conv_for_P4(x1)
         # 26,26,256 + 26,26,256 -> 26,26,512
-        P4 = torch.cat([P4, P5_upsample], axis=1)
+        P4 = torch.cat([P4, P5_up_sample], axis=1)
         # 26,26,512 -> 26,26,256 -> 26,26,512 -> 26,26,256 -> 26,26,512 -> 26,26,256
         P4 = self.make_five_conv1(P4)
 
         # 26,26,256 -> 26,26,128 -> 52,52,128
-        P4_upsample = self.upsample2(P4)
+        P4_up_sample = self.up_sample2(P4)
         # 52,52,256 -> 52,52,128
         P3 = self.conv_for_P3(x2)
         # 52,52,128 + 52,52,128 -> 52,52,256
-        P3 = torch.cat([P3, P4_upsample], axis=1)
+        P3 = torch.cat([P3, P4_up_sample], axis=1)
         # 52,52,256 -> 52,52,128 -> 52,52,256 -> 52,52,128 -> 52,52,256 -> 52,52,128
         P3 = self.make_five_conv2(P3)
 
         # 52,52,128 -> 26,26,256
-        P3_downsample = self.down_sample1(P3)
+        P3_down_sample = self.down_sample1(P3)
         # 26,26,256 + 26,26,256 -> 26,26,512
-        P4 = torch.cat([P3_downsample, P4], axis=1)
+        P4 = torch.cat([P3_down_sample, P4], axis=1)
         # 26,26,512 -> 26,26,256 -> 26,26,512 -> 26,26,256 -> 26,26,512 -> 26,26,256
         P4 = self.make_five_conv3(P4)
 
         # 26,26,256 -> 13,13,512
-        P4_downsample = self.down_sample2(P4)
+        P4_down_sample = self.down_sample2(P4)
         # 13,13,512 + 13,13,512 -> 13,13,1024
-        P5 = torch.cat([P4_downsample, P5], axis=1)
+        P5 = torch.cat([P4_down_sample, P5], axis=1)
         # 13,13,1024 -> 13,13,512 -> 13,13,1024 -> 13,13,512 -> 13,13,1024 -> 13,13,512
         P5 = self.make_five_conv4(P5)
 
