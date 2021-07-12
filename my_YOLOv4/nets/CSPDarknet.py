@@ -16,7 +16,7 @@ class Mish(nn.Module):
 
 
 class BasicConv(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=(1, 1)):
         super(BasicConv, self).__init__()
 
         self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, kernel_size // 2, bias=False)
