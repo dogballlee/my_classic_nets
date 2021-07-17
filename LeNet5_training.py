@@ -19,7 +19,7 @@ print(device)
 EPOCH = 35
 BATCH_SIZE = 64
 BATCH_SIZE_TEST = 1000
-LR = 2e-5
+LR = 2e-3
 WEIGHT_DECAY = 1e-3
 download_mnist = True
 
